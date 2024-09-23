@@ -1,0 +1,20 @@
+;; (defun nth* (idx i l)
+;;     (unless (null l)
+;;         (if (equal i idx)
+;;             (car l)
+;;             (nth* idx (++ i) (cdr l)))))
+
+;; (defun nth (idx l)
+;;     (let ((i 0))
+;;         (nth* idx i l)))
+
+;; (setq test-list '(a b c))
+;; (nth 0 test-list)
+;; (nth 1 test-list)
+;; (nth 2 test-list)
+;; (nth 3 test-list)
+;; (nth 0 nil)
+;; (nth 1 nil)
+
+(defmacro list-add (l val)
+  `(setq ,l (append ,l ,val)))

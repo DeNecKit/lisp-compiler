@@ -1,0 +1,6 @@
+cd ~/os-pi/portable/lisp/test/
+make /tmp/test_sys
+cd ..
+cat boot/lib.lsp boot/list.lsp ~/lisp-compiler/util.lsp ~/lisp-compiler/vm.lsp ~/lisp-compiler/compiler.lsp > /tmp/lisp
+/tmp/test_sys < /tmp/lisp
+

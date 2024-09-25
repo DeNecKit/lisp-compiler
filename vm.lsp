@@ -11,31 +11,16 @@
     ; Помещает val в ACC
   (setq *acc* val))
 
-
-;; (defun vm-run (program)
-;;     ; program - список инструкций (пар опкодов и операндов)
-;;     ; Выполняет поочерёдно каждую инструкцию
-;;     ; Возвращает значение регистра ACC
-;;   (if (null program)
-;;       *acc*
-;;       (let ((inst (car program)))
-;;         (unless (null inst)
-;;           (let ((opcode (car inst))
-;;                 (op (car (cdr inst))))
-;;             (funcall opcode op)))
-;;         (vm-run (cdr program)))))
-
-(defmacro exec-inst (opcode &rest ops)
-  `(,opcode ,@ops))
-
 (defun vm-run (program)
+  ; program - список инструкций (пар опкодов и операндов)
+  ; Выполняет поочерёдно каждую инструкцию
+  ; Возвращает значение регистра ACC  
   (if (null program)
       *acc*
       (let ((inst (car program)))
         (unless (null inst)
           (let ((opcode (car inst))
                 (ops (cdr inst)))
-            ;; (exec-inst opcode ops)))
             (funcall opcode (car ops))))
         (vm-run (cdr program)))))
 

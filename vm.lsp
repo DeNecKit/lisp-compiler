@@ -16,6 +16,11 @@
   (when (not (eq *acc* t))
     (jmp label)))
 
+
+(defun vm-run (program)
+  (setq *cur-program* program)
+  (inner-vm-run program))
+
 (defun inner-vm-run (program)
   (if (null program)
       *acc*
@@ -31,7 +36,3 @@
                    (setq program jnt-res))))
               (otherwise (funcall opcode op)))))
         (inner-vm-run (cdr program)))))
-
-(defun vm-run (program)
-  (setq *cur-program* program)
-  (inner-vm-run program))

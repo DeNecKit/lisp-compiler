@@ -13,8 +13,7 @@
       res)))
 
 (defun jnt (label)
-  (when (not (eq *acc* t))
-    (jmp label)))
+  (unless *acc* (jmp label)))
 
 
 (defun vm-run (program)

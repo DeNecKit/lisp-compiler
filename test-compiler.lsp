@@ -3,7 +3,7 @@
     (print '-----------------)
     (print expr-list)
     (print program)
-    (assert (vm-run program) expected-res)))
+    (print (assert (vm-run program) expected-res))))
 
 
 (test '(progn 1 2 3) 3)

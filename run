@@ -1,8 +1,8 @@
 cd ~/os-pi/portable/lisp/test/
-make /tmp/test_sys
-cd ../boot
-cat lib.lsp list.lsp test.lsp > /tmp/lisp
-cd ~/lisp-compiler
-cat vm.lsp compiler.lsp test-compiler.lsp >> /tmp/lisp
-/tmp/test_sys < /tmp/lisp
+make /tmp/lisp
+cd ../boot/
+cat lib.lsp list.lsp test.lsp > /tmp/all.lsp
+cd ~/lisp-compiler/
+cat vm.lsp compiler.lsp test-compiler.lsp >> /tmp/all.lsp
+/tmp/lisp < /tmp/all.lsp
 

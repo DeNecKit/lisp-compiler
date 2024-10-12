@@ -19,7 +19,7 @@
         ('if (compile-if (cdr expr))))))
 
 ;; Компилирует блок progn.
-;; lst - список S-выражение внутри блока progn.
+;; lst - список S-выражений внутри блока progn.
 (defun compile-progn (lst)
   (unless (null lst)
 	(inner-compile (car lst))

@@ -1,37 +1,34 @@
-(defvar *acc* nil)
+;; Выполняемая в данный момент программа.
 (defvar *cur-program* nil)
 
+;; Регистры:
 
-(defun lda (val)
-  (setq *acc* val))
-
-(defun jmp (label)
-  (unless (null label)
-    (let ((res *cur-program*))
-      (while (not (eq (car res) label))
-        (setq res (cdr res)))
-      res)))
-
-(defun jnt (label)
-  (unless *acc* (jmp label)))
+;; ACC - хранит результат последней операции.
+(defvar *acc* nil)
 
 
+;; Инструкции:
+
+;; LDA - поместить S-выражение expr в регистр ACC.
+(defun lda (expr)
+  (setq *acc* expr))
+
+;; JMP - безусловный переход на метку label.
+(defmacro jmp (label)
+  `(go ,label))
+
+;; JNT - если ACC != t, то переход на метку label.
+(defmacro jnt (label)
+  `(unless *acc* (jmp ,label)))
+
+
+;; Выполняет программу program.
+;; program - список инструкций (пар опкодов и операндов).
+;; Возвращает значение регистра ACC.
 (defun vm-run (program)
   (setq *cur-program* program)
-  (inner-vm-run program))
+  (inner-vm-run)
+  *acc*)
 
-(defun inner-vm-run (program)
-  (if (null program)
-      *acc*
-      (let ((inst (car program)))
-        (unless (atom inst)
-          (let ((opcode (car inst))
-                (op (cadr inst)))
-            (case opcode
-              ('jmp (setq program (jmp op)))
-              ('jnt
-               (let ((jnt-res (jnt op)))
-                 (unless (null jnt-res)
-                   (setq program jnt-res))))
-              (otherwise (funcall opcode op)))))
-        (inner-vm-run (cdr program)))))
+(defmacro inner-vm-run ()
+  `(tagbody ,@*cur-program*))

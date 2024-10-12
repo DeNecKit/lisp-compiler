@@ -1,3 +1,4 @@
+;; Тест компиляции и выполнения скомпилированной программы.
 (defun test (expr-list expected-res)
   (let ((program (compile expr-list)))
     (print '-----------------)

@@ -32,16 +32,18 @@
 (defun inner-compile (expr)
   (unless *comp-err*
     (if (atom expr)
-        (if (is-const expr)
-            (emit `(lda ,expr))
+        (if (and (symbolp expr)
+                 (not (eq expr t)))
             (let ((var (find-global-var expr)))
               (if (null var)
                   (comp-err (concat "No such global variable: " (symbol-name expr)))
-                  (emit `(global-get ,var)))))
+                  (emit `(global-get ,var))))
+            (emit `(lda ,expr)))
 	    (case (car expr)
           ('progn (compile-progn (cdr expr)))
           ('if (compile-if (cdr expr)))
-          ('setq (compile-setq (cdr expr)))))))
+          ('setq (compile-setq (cdr expr)))
+          (otherwise (comp-err (concat "Unknown func: " (symbol-name (car expr)))))))))
 
 ;; Компилирует блок progn.
 ;; lst - список S-выражений внутри блока progn.
@@ -78,38 +80,21 @@
           (let* ((setq-sym (car setq-body))
                  (setq-expr (cadr setq-body))
                  (setq-i (find-global-var setq-sym)))
-            (if (is-sym setq-sym)
-                (progn
-                  (inner-compile setq-expr)
-                  (when (null setq-i)
-                    (setq *globals* (append *globals* `(,setq-sym)))
-                    (setq setq-i *globals-count*)
-                    (setq *globals-count* (++ *globals-count*)))
-                  (emit `(global-set ,setq-i))
-                  (emit `(lda ,setq-sym)))
+            (if (symbolp setq-sym)
+                (if (or (eq setq-sym t))
+                    (comp-err (concat "setq: variable name is constant: " (symbol-name setq-sym)))
+                    (progn
+                      (inner-compile setq-expr)
+                      (when (null setq-i)
+                        (setq *globals* (append *globals* `(,setq-sym)))
+                        (setq setq-i *globals-count*)
+                        (setq *globals-count* (++ *globals-count*)))
+                      (emit `(global-set ,setq-i))))
                 (comp-err "setq: variable name is not a symbol"))))))
 
 ;; Добавляет инструкцию к текущей накопленной программе *program*.
 (defun emit (val)
   (setq *program* (append *program* `(,val))))
-
-;; Определяет, является ли x числом.
-;; Возвращает t или nil.
-(defun is-num (x)
-  (equal (* x 1) x))
-
-;; Определяет, является ли x константным выражением.
-;; Возвращает t или nil.
-(defun is-const (x)
-  (or (null x)
-      (eq x t)
-      (is-num x)))
-
-;; Определяет, является ли x символом.
-;; Возвращает t или nil.
-(defun is-sym (x)
-  (and (atom x)
-       (not (is-const x))))
 
 ;; Производит поиск переменной в глобальном окружении по символу.
 ;; Возвращает индекс в массиве глобального окружения, если символ найден, иначе nil.

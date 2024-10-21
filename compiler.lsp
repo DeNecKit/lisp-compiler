@@ -21,7 +21,7 @@
   (inner-compile expr)
   (if *comp-err*
       (progn
-        (setq *comp-err-msg* (concat "Compilation error: " *comp-err-msg*))
+        (setq *comp-err-msg* (concat "[Compilation error] " *comp-err-msg*))
         ;; (print *comp-err-msg*)
         nil)
       (progn

@@ -13,11 +13,11 @@
 ;; Создаёт список инструкций для вычисления S-выражения expr на виртуальной машине с помощью функции vm-run.
 ;; expr - S-выражение
 (defun compile (expr)
-  (setq *program* nil)
-  (setq *globals* nil)
-  (setq *globals-count* 0)
-  (setq *comp-err* nil)
-  (setq *comp-err-msg* nil)
+  (setq *program* nil
+        *globals* nil
+        *globals-count* 0
+        *comp-err* nil
+        *comp-err-msg* nil)
   (inner-compile expr)
   (if *comp-err*
       (progn

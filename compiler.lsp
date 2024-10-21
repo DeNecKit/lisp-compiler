@@ -98,7 +98,9 @@
                         (setq *globals* (append *globals* `(,setq-sym)))
                         (setq setq-i *globals-count*)
                         (setq *globals-count* (++ *globals-count*)))
-                      (emit `(global-set ,setq-i))))
+                      (emit `(global-set ,setq-i))
+                      (when (not (null (cddr setq-body)))
+                        (compile-setq (cddr setq-body)))))
                 (comp-err "setq: variable name is not a symbol"))))))
 
 ;; Добавляет инструкцию к текущей накопленной программе *program*.

@@ -2,18 +2,20 @@
 (defvar *test-failed* nil)
 
 
-;; Тест компиляции и выполнения скомпилированной программы.
-(defun test (expr-list expected-res)
+;; Тест компиляции, ассемблирования и выполнения программы.
+(defun test (expr expected-res)
   (unless *test-failed*
-    (let ((program (compile expr-list))
-          (target nil))
+    (let* ((program (compile expr))
+           (bytecode (assemble program))
+           (target nil))
       (if *comp-err*
           (setq target *comp-err-msg*)
-          (setq target (vm-run program)))
+          (setq target (vm-run bytecode)))
       (let ((res (assert target expected-res)))
         (when (eq (car res) 'fail)
-          (print expr-list)
-          (print program)
+          (print expr)
+          (when (not (null program)) (print program))
+          (when (not (null bytecode)) (print bytecode))
           (print res)
           (setq *test-failed* t))))))
 

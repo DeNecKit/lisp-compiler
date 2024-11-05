@@ -41,7 +41,7 @@
 (test `(if t (if ,nil 1 2) 3) 2)
 (test `(if ,nil (if ,nil 1 2) 3) 3)
 
-(test 'a "[Compilation error] No such global variable: A")
+(test 'a "[Compilation error] Unknown symbol: A")
 (test '(setq) "[Compilation error] setq: no params")
 (test '(setq a) "[Compilation error] setq: no expression to set")
 (test '(setq a 1 b) "[Compilation error] setq: no expression to set")

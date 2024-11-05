@@ -58,4 +58,9 @@
 (test '(progn (setq a 5 b 10) a) 5)
 (test '(progn (setq a 5 b a) b) 5)
 
+(test '((lambda (x) x) 5) 5)
+(test '((lambda () 10)) 10)
+(test '((lambda (x) ((lambda (y) y) 20)) 15) 20)
+(test '((lambda (x) ((lambda () x))) 25) 25)
+
 (check-tests)

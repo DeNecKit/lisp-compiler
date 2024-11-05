@@ -8,6 +8,10 @@
 (defvar *comp-err* nil)
 ;; *comp-err-msg* - сообщение о последней ошибки компиляции.
 (defvar *comp-err-msg* nil)
+;; *funcs* - список функций, содержащий названия аргументов.
+(defvar *funcs* nil)
+;; *locals* - окружение локальных переменных.
+(defvar *locals* nil)
 
 
 ;; Создаёт список инструкций для вычисления S-выражения expr на виртуальной машине с помощью функции vm-run.
@@ -17,7 +21,9 @@
         *globals* nil
         *globals-count* 0
         *comp-err* nil
-        *comp-err-msg* nil)
+        *comp-err-msg* nil
+        *funcs* nil
+        *locals* nil)
   (inner-compile expr)
   (if *comp-err*
       (progn
@@ -34,16 +40,29 @@
     (if (atom expr)
         (if (and (symbolp expr)
                  (not (eq expr t)))
-            (let ((var (find-global-var expr)))
+            (let* ((find-res (find-var expr))
+                   (scope (car find-res))
+                   (var (cadr find-res)))
               (if (null var)
-                  (comp-err (concat "No such global variable: " (symbol-name expr)))
-                  (emit `(global-get ,var))))
+                  (comp-err (concat "Unknown symbol: " (symbol-name expr)))
+                  (case scope
+                    ('global (emit `(global-get ,var)))
+                    ('local (emit `(stack-peek ,var)))
+                    (otherwise (error "Unreachable")))))
             (emit `(lda ,expr)))
-	    (case (car expr)
-          ('progn (compile-progn (cdr expr)))
-          ('if (compile-if (cdr expr)))
-          ('setq (compile-setq (cdr expr)))
-          (otherwise (comp-err (concat "Unknown func: " (symbol-name (car expr)))))))))
+        (let ((func (car expr)))
+          (case func
+            ('progn (compile-progn (cdr expr)))
+            ('if (compile-if (cdr expr)))
+            ('setq (compile-setq (cdr expr)))
+            (otherwise
+             (if (not (atom func))
+                 (if (eq (car func) 'lambda)
+                     (let ((label-func (compile-lambda (cdr func))))
+                       (unless *comp-err*
+                         (compile-func label-func (cdr expr))))
+                     (comp-err "Invalid lambda symbol"))
+                 (comp-err (concat "Unknown func: " (symbol-name (car expr)))))))))))
 
 ;; Компилирует блок progn.
 ;; lst - список S-выражений внутри блока progn.
@@ -88,39 +107,168 @@
           (comp-err "setq: no expression to set")
           (let* ((setq-sym (car setq-body))
                  (setq-expr (cadr setq-body))
-                 (setq-i (find-global-var setq-sym)))
+                 (find-res (find-var setq-sym))
+                 (setq-var-type (car find-res))
+                 (setq-i (cadr find-res)))
             (if (symbolp setq-sym)
-                (if (or (eq setq-sym t))
+                (if (eq setq-sym t)
                     (comp-err (concat "setq: variable name is constant: " (symbol-name setq-sym)))
                     (progn
                       (inner-compile setq-expr)
                       (when (null setq-i)
+                        (when (not (eq setq-var-type 'global))
+                          (error "Unreachable"))
                         (setq *globals* (append *globals* `(,setq-sym)))
                         (setq setq-i *globals-count*)
                         (setq *globals-count* (++ *globals-count*)))
-                      (emit `(global-set ,setq-i))
+                      (case setq-var-type
+                        ('global (emit `(global-set ,setq-i)))
+                        ('local (emit `(stack-set ,setq-i))))
                       (when (not (null (cddr setq-body)))
                         (compile-setq (cddr setq-body)))))
                 (comp-err "setq: variable name is not a symbol"))))))
 
+;; Комплирует лямбда-выражение.
+;; lambda-body - тело лямбда-выражения (список аргументов и тело функции).
+(defun compile-lambda (lambda-body)
+  (if (null lambda-body)
+      (comp-err "No params in lambda")
+      (if (null (cdr lambda-body))
+          (comp-err "No body in lambda")
+          (let ((locals-copy *locals*)
+                (args (car lambda-body))
+                (lbody (cdr lambda-body)))
+            (if (and (not (null args))
+                     (atom args))
+                (comp-err "Invalid params in lambda")
+                (progn
+                  (let ((args args))
+                    (while (not (null args))
+                      (if (symbolp (car args))
+                          (setq args (cdr args))
+                          (progn
+                            (comp-err "Not symbol in lambda args")
+                            (setq args nil)))))
+                  (unless *comp-err*
+                    (let ((label-func (gensym))
+                          (label-after (gensym)))
+                      (setq *funcs*
+                            (append *funcs*
+                                    `((lambda ,label-func ,args))))
+                      (emit `(jmp ,label-after))
+                      (emit label-func)
+                      (foldr '(lambda (_ arg)
+                               (setq *locals* (cons arg *locals*)))
+                             nil args)
+                      (setq *locals* (cons nil *locals*))
+                      (dolist (lexpr lbody)
+                        (inner-compile lexpr))
+                      (setq *locals* locals-copy)
+                      (emit '(ret))
+                      (emit label-after)
+                      label-func))))))))
+
+;; Компилирует вызов функции.
+;; label - метка тела функции.
+;; fparams - параметры функции.
+(defun compile-func (label fparams)
+  (let ((func nil)
+        (args nil)
+        (args-len 0)
+        (fparams-len 0))
+    (dolist (_ fparams)
+      (setq fparams-len (++ fparams-len)))
+    (dolist (f *funcs*)
+      (when (and (eq (car f) 'lambda)
+                 (eq (cadr f) label))
+        (setq func f)))
+    (when (null func)
+      (error "Unreachable"))
+    (setq args (caddr func))
+    (dolist (_ args)
+      (setq args-len (++ args-len)))
+    (if (not (eq fparams-len args-len))
+        (comp-err (concat
+                   "Invalid number of arguments (expected "
+                   (inttostr args-len)
+                   ", but got " (inttostr fparams-len) ")"))
+        (progn
+          (setq pairs (zip args fparams))
+          (foldr '(lambda (_ pair)
+                   (let ((arg (car pair))
+                         (param (cdr pair)))
+                     (inner-compile param)
+                     (emit '(stack-push))))
+                 nil pairs)
+          (emit `(call ,label))
+          (when (> args-len 0)
+            (emit `(stack-drop ,args-len)))))))
+
 ;; Добавляет инструкцию к текущей накопленной программе *program*.
 (defun emit (val)
   (setq *program* (append *program* `(,val))))
+
+;; Производит поиск переменной по символу сначала в локальном, а затем в глобальном окружении.
+;; Возвращает список, состоящий из символа - GLOBAL или LOCAL,
+;; и индекса в массиве глобального окружения или в стеке, либо nil.
+(defun find-var (var)
+  (let ((local (find-local-var var)))
+    (if (not (null local)) `(local ,local)
+        `(global ,(find-global-var var)))))
 
 ;; Производит поиск переменной в глобальном окружении по символу.
 ;; Возвращает индекс в массиве глобального окружения, если символ найден, иначе nil.
 (defun find-global-var (var)
   (let ((globals *globals*)
         (i 0))
-    (while (not
-            (or
-             (null globals)
-             (eq (car globals) var)))
+    (while (not (or (null globals)
+                    (eq (car globals) var)))
       (setq globals (cdr globals))
       (setq i (++ i)))
     (if (null globals) nil i)))
+
+;; Производит поиск переменной в локальном окружении по символу.
+;; Возвращает индекс переменной в стеке, если символ найден, иначе nil.
+(defun find-local-var (var)
+  (let ((locals *locals*)
+        (i 0))
+    (while (not (or (null locals)
+                    (eq (car locals) var)))
+      (setq locals (cdr locals))
+      (setq i (++ i)))
+    (if (null locals) nil i)))
 
 ;; Устанавливает флаг ошибки компиляции и сохраняет сообщение об ошибке.
 (defun comp-err (msg)
   (setq *comp-err* t)
   (setq *comp-err-msg* msg))
+
+;; Преобразовывает выражение в строку
+(defun str (expr)
+  (if (null expr)
+      "NIL"
+      (if (atom expr)
+          (if (symbolp expr)
+              (symbol-name expr)
+              (inttostr expr))
+          (concat "(" (concat (str-list expr) ")")))))
+
+;; Преобразовывает элементы списка в строку
+(defun str-list (lst)
+  (let ((res ""))
+    (while (not (null lst))
+      (setq res (concat res (str (car lst))))
+      (when (not (null (cdr lst)))
+        (setq res (concat res " ")))
+      (setq lst (cdr lst)))
+    res))
+
+(defun zip (list1 list2)
+  (if (or (null list1)
+          (null list2))
+      nil
+      (if (or (null (cdr list1))
+              (null (cdr list2)))
+          (list (cons (car list1) (car list2)))
+          (append (list (cons (car list1) (car list2)))
+                  (zip (cdr list1) (cdr list2))))))

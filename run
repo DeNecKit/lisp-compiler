@@ -3,6 +3,6 @@ make /tmp/lisp
 cd ../boot/
 cat lib.lsp list.lsp test.lsp > /tmp/all.lsp
 cd ~/lisp-compiler/
-cat vm.lsp compiler.lsp test-compiler.lsp >> /tmp/all.lsp
+cat vm.lsp compiler.lsp assembler.lsp test-compiler.lsp >> /tmp/all.lsp
 /tmp/lisp < /tmp/all.lsp
 

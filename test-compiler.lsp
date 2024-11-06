@@ -58,6 +58,11 @@
 (test '(progn (setq a 5 b 10) a) 5)
 (test '(progn (setq a 5 b a) b) 5)
 
+(test '(lambda) "[Compilation error] Unknown func: LAMBDA")
+(test '((lambda)) "[Compilation error] No params in lambda")
+(test '((lambda ())) "[Compilation error] No body in lambda")
+(test '((lambda (5) 5)) "[Compilation error] Not symbol in lambda args")
+(test '((lambda (x) x)) "[Compilation error] Invalid number of arguments (expected 1, but got 0)")
 (test '((lambda (x) x) 5) 5)
 (test '((lambda () 10)) 10)
 (test '((lambda (x) ((lambda (y) y) 20)) 15) 20)

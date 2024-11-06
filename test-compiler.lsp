@@ -15,7 +15,7 @@
         (when (eq (car res) 'fail)
           (print expr)
           (when (not (null program)) (print program))
-          (when (not (null bytecode)) (print bytecode))
+          (when (> (array-size bytecode) 0) (print bytecode))
           (print res)
           (setq *test-failed* t))))))
 
@@ -62,5 +62,6 @@
 (test '((lambda () 10)) 10)
 (test '((lambda (x) ((lambda (y) y) 20)) 15) 20)
 (test '((lambda (x) ((lambda () x))) 25) 25)
+(test '((lambda (x) (setq x 35)) 30) 35)
 
 (check-tests)

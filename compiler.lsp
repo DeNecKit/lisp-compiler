@@ -193,13 +193,10 @@
                    (inttostr args-len)
                    ", but got " (inttostr fparams-len) ")"))
         (progn
-          (setq pairs (zip args fparams))
-          (foldr '(lambda (_ pair)
-                   (let ((arg (car pair))
-                         (param (cdr pair)))
-                     (inner-compile param)
-                     (emit '(stack-push))))
-                 nil pairs)
+          (foldr '(lambda (_ param)
+                   (inner-compile param)
+                   (emit '(stack-push)))
+                 nil fparams)
           (emit `(call ,label))
           (when (> args-len 0)
             (emit `(stack-drop ,args-len)))))))
@@ -242,33 +239,3 @@
 (defun comp-err (msg)
   (setq *comp-err* t)
   (setq *comp-err-msg* msg))
-
-;; Преобразовывает выражение в строку
-(defun str (expr)
-  (if (null expr)
-      "NIL"
-      (if (atom expr)
-          (if (symbolp expr)
-              (symbol-name expr)
-              (inttostr expr))
-          (concat "(" (concat (str-list expr) ")")))))
-
-;; Преобразовывает элементы списка в строку
-(defun str-list (lst)
-  (let ((res ""))
-    (while (not (null lst))
-      (setq res (concat res (str (car lst))))
-      (when (not (null (cdr lst)))
-        (setq res (concat res " ")))
-      (setq lst (cdr lst)))
-    res))
-
-(defun zip (list1 list2)
-  (if (or (null list1)
-          (null list2))
-      nil
-      (if (or (null (cdr list1))
-              (null (cdr list2)))
-          (list (cons (car list1) (car list2)))
-          (append (list (cons (car list1) (car list2)))
-                  (zip (cdr list1) (cdr list2))))))

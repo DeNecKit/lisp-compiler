@@ -144,7 +144,8 @@
                 (progn
                   (let ((args args))
                     (while (not (null args))
-                      (if (symbolp (car args))
+                      (if (and (symbolp (car args))
+                               (not (eq (car args) t)))
                           (setq args (cdr args))
                           (progn
                             (comp-err "Not symbol in lambda args")

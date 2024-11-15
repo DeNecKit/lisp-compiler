@@ -64,10 +64,17 @@
 (test '((lambda ())) "[Compilation error] No body in lambda")
 (test '((lambda (5) 5)) "[Compilation error] Not symbol in lambda args")
 (test '((lambda (x) x)) "[Compilation error] Invalid number of arguments (expected 1, but got 0)")
+(test '((lambda () x)) "[Compilation error] Unknown symbol: X")
+(test '((lambda () (setq x 5))) 5)
 (test '((lambda (x) x) 5) 5)
 (test '((lambda () 10)) 10)
 (test '((lambda (x) ((lambda (y) y) 20)) 15) 20)
 (test '((lambda (x) ((lambda () x))) 25) 25)
 (test '((lambda (x) (setq x 35)) 30) 35)
+
+(test '(progn
+	    (defun f (x) x)
+	    (f 5))
+      5)
 
 (check-tests)

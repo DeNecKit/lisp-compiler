@@ -47,7 +47,7 @@
                   (comp-err (concat "Unknown symbol: " (symbol-name expr)))
                   (case scope
                     ('global (emit `(global-get ,var)))
-                    ('local (emit `(stack-peek ,var)))
+                    ('local (emit `(local-get ,var)))
                     (otherwise (error "Unreachable")))))
             (emit `(lda ,expr)))
         (let ((func (car expr))
@@ -131,7 +131,7 @@
                         (setq *globals-count* (++ *globals-count*)))
                       (case setq-var-type
                         ('global (emit `(global-set ,setq-i)))
-                        ('local (emit `(stack-set ,setq-i)))
+                        ('local (emit `(local-set ,setq-i)))
                         (otherwise (error "Unreachable")))
                       (when (not (null (cddr setq-body)))
                         (compile-setq (cddr setq-body)))))
@@ -238,11 +238,11 @@
         (progn
           (foldr '(lambda (_ param)
                    (inner-compile param)
-                   (emit '(stack-push)))
+                   (emit '(push)))
                  nil fparams)
           (emit `(call ,label))
           (when (> args-len 0)
-            (emit `(stack-drop ,args-len)))))))
+            (emit `(drop ,args-len)))))))
 
 ;; Добавляет инструкцию к текущей накопленной программе *program*.
 (defun emit (val)

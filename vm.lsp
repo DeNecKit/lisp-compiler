@@ -44,46 +44,46 @@
   (setq *acc* (aref *globals-mem* i))
   (setq *pc* (++ *pc*)))
 
-;; STACK-PUSH - добавляет значение регистра ACC в стэк.
-(defun stack-push ()
-  (push *acc*)
+;; PUSH - добавляет значение регистра ACC в стэк.
+(defun push ()
+  (stack-push *acc*)
   (setq *pc* (++ *pc*)))
 
-(defun push (val)
+(defun stack-push (val)
   (seta *stack* *stack-head* val)
   (setq *stack-head* (++ *stack-head*))
   (when (>= *stack-head* *stack-max*)
     (error "Stack overflow")))
 
-;; STACK-PEEK - загружает в ACC значение i-го элемента стэка, начиная с верхушки.
-(defun stack-peek (i)
+;; LOCAL-GET - загружает в ACC значение i-го элемента стэка, начиная с верхушки.
+(defun local-get (i)
   (let ((idx (- (- *stack-head* i) 1)))
     (when (< idx 0)
       (error "Stack underflow"))
     (setq *acc* (aref *stack* idx)
           *pc* (++ *pc*))))
 
-;; STACK-POP - загружает верхний элемент стека в регистр ACC, при этом удаляет этот элемент из стека.
-(defun stack-pop ()
-  (setq *acc* (pop))
+;; POP - загружает верхний элемент стека в регистр ACC, при этом удаляет этот элемент из стека.
+(defun pop ()
+  (setq *acc* (stack-pop))
   (setq *pc* (++ *pc*)))
 
-(defun pop ()
+(defun stack-pop ()
   (setq *stack-head* (- *stack-head* 1))
   (when (< *stack-head* 0)
     (error "Stack underflow"))
   (aref *stack* *stack-head*))
 
-;; STACK-SET i - присваивает элементу стека с индексом i, начиная с верхушки, значение регистра ACC.
-(defun stack-set (i)
+;; LOCAL-SET i - присваивает элементу стека с индексом i, начиная с верхушки, значение регистра ACC.
+(defun local-set (i)
   (let ((idx (- (- *stack-head* i) 1)))
     (when (< idx 0)
       (error "Stack underflow"))
     (seta *stack* idx *acc*)
     (setq *pc* (++ *pc*))))
 
-;; STACK-DROP n - удаляет n верхних элементов из стека.
-(defun stack-drop (n)
+;; DROP n - удаляет n верхних элементов из стека.
+(defun drop (n)
   (setq *stack-head* (- *stack-head* n))
   (when (< *stack-head* 0)
       (error "Stack underflow"))
@@ -91,12 +91,12 @@
 
 ;; CALL addr - добавляет адрес следующей инструкции в стэк и производит переход на относительный адрес addr.
 (defun call (addr)
-  (push (+ *pc* 1))
+  (stack-push (+ *pc* 1))
   (jmp addr))
 
 ;; RET - производит переход на адрес из верхушки стэка, при этом удаляет этот адрес из стэка.
 (defun ret ()
-  (jmp (- (pop) *pc*)))
+  (jmp (- (stack-pop) *pc*)))
 
 
 ;; Выполняет программу program.

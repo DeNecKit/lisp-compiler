@@ -10,14 +10,15 @@
            (target nil))
       (if *comp-err*
           (setq target *comp-err-msg*)
-          (setq target (vm-run bytecode)))
+	      (setq target (vm-run bytecode)))
       (let ((res (assert target expected-res)))
-        (when (eq (car res) 'fail)
-          (print expr)
-          (when (not (null program)) (print program))
-          (when (> (array-size bytecode) 0) (print bytecode))
-          (print res)
-          (setq *test-failed* t))))))
+	    (print expr)
+	    (when (not (null program)) (print program))
+	    (when (> (array-size bytecode) 0) (print bytecode))
+	    (print res)
+        (if (eq (car res) 'fail)
+	        (setq *test-failed* t)
+            (print '---------------------))))))
 
 ;; Проверка, все ли тесты успешны
 (defun check-tests ()

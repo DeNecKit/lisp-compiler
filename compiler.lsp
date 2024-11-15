@@ -50,26 +50,34 @@
                     ('local (emit `(stack-peek ,var)))
                     (otherwise (error "Unreachable")))))
             (emit `(lda ,expr)))
-        (let ((func (car expr)))
+        (let ((func (car expr))
+              (args (cdr expr)))
           (case func
-            ('progn (compile-progn (cdr expr)))
-            ('if (compile-if (cdr expr)))
-            ('setq (compile-setq (cdr expr)))
+            ('progn (compile-progn args))
+            ('if (compile-if args))
+            ('setq (compile-setq args))
+            ('defun (compile-defun args))
             (otherwise
              (if (not (atom func))
                  (if (eq (car func) 'lambda)
                      (let ((label-func (compile-lambda (cdr func))))
                        (unless *comp-err*
-                         (compile-func label-func (cdr expr))))
+                         (compile-func-call label-func args)))
                      (comp-err "Invalid lambda symbol"))
-                 (comp-err (concat "Unknown func: " (symbol-name (car expr)))))))))))
+                 (let ((label-func nil))
+                   (dolist (f *funcs*)
+                     (when (eq (car f) func)
+                       (setq label-func (cadr f))))
+                   (if (null label-func)
+                       (comp-err (concat "Unknown func: " (symbol-name func)))
+                       (compile-func-call label-func args))))))))))
 
 ;; Компилирует блок progn.
 ;; lst - список S-выражений внутри блока progn.
 (defun compile-progn (lst)
   (unless (null lst)
-	(inner-compile (car lst))
-	(compile-progn (cdr lst))))
+    (inner-compile (car lst))
+    (compile-progn (cdr lst))))
 
 ;; Компилирует if-выражение.
 ;; if-body - тело if-выражения (условие, ветка по "Да" и по "Нет").
@@ -123,56 +131,91 @@
                         (setq *globals-count* (++ *globals-count*)))
                       (case setq-var-type
                         ('global (emit `(global-set ,setq-i)))
-                        ('local (emit `(stack-set ,setq-i))))
+                        ('local (emit `(stack-set ,setq-i)))
+                        (otherwise (error "Unreachable")))
                       (when (not (null (cddr setq-body)))
                         (compile-setq (cddr setq-body)))))
                 (comp-err "setq: variable name is not a symbol"))))))
 
+;; Компилирует объявление функции (lambda или defun).
+;; func-name - название функции (nil в случае lambda).
+;; func-args - список названий переменных.
+;; func-body - тело функции.
+;; Возвращает метку на тело скомпилированной функции.
+(defun compile-func (func-name func-args func-body)
+  (let ((locals-copy *locals*)
+        (label-func (gensym))
+        (label-after (gensym)))
+    (setq *funcs*
+          (append *funcs*
+                  `((,func-name ,label-func ,args))))
+    (emit `(jmp ,label-after))
+    (emit label-func)
+    (foldr '(lambda (_ arg)
+             (setq *locals* (cons arg *locals*)))
+           nil args)
+    (setq *locals* (cons nil *locals*))
+    (dolist (expr func-body)
+      (inner-compile expr))
+    (setq *locals* locals-copy)
+    (emit '(ret))
+    (emit label-after)
+    label-func))
+
 ;; Комплирует лямбда-выражение.
 ;; lambda-body - тело лямбда-выражения (список аргументов и тело функции).
+;; Возвращает метку на тело скомпилированной лямбда-функции.
 (defun compile-lambda (lambda-body)
   (if (null lambda-body)
       (comp-err "No params in lambda")
       (if (null (cdr lambda-body))
           (comp-err "No body in lambda")
-          (let ((locals-copy *locals*)
-                (args (car lambda-body))
+          (let ((args (car lambda-body))
                 (lbody (cdr lambda-body)))
             (if (and (not (null args))
                      (atom args))
                 (comp-err "Invalid params in lambda")
                 (progn
-                  (let ((args args))
-                    (while (not (null args))
-                      (if (and (symbolp (car args))
-                               (not (eq (car args) t)))
-                          (setq args (cdr args))
-                          (progn
-                            (comp-err "Not symbol in lambda args")
-                            (setq args nil)))))
+                  (dolist (arg args)
+                    (when (not (symbolp arg))
+                      (comp-err "Not symbol in lambda args")))
                   (unless *comp-err*
-                    (let ((label-func (gensym))
-                          (label-after (gensym)))
-                      (setq *funcs*
-                            (append *funcs*
-                                    `((lambda ,label-func ,args))))
-                      (emit `(jmp ,label-after))
-                      (emit label-func)
-                      (foldr '(lambda (_ arg)
-                               (setq *locals* (cons arg *locals*)))
-                             nil args)
-                      (setq *locals* (cons nil *locals*))
-                      (dolist (lexpr lbody)
-                        (inner-compile lexpr))
-                      (setq *locals* locals-copy)
-                      (emit '(ret))
-                      (emit label-after)
-                      label-func))))))))
+                    (compile-func nil args lbody))))))))
+
+;; Компилирует объявление функции с помощью DEFUN.
+;; defun-body - список, состоящий из названия, списка аргументов и тела функции.
+(defun compile-defun (defun-body)
+  (if (null defun-body)
+      (comp-err "No name in defun")
+      (if (null (cdr defun-body))
+          (comp-err "No args in defun")
+          (let ((name (car defun-body))
+                (args (cadr defun-body))
+                (fbody (cddr defun-body)))
+            (if (null fbody)
+                (comp-err "No body in defun")
+                (if (symbolp name)
+                    (if (and (not (null args))
+                             (atom args))
+                        (comp-err "Invalid params in defun")
+                        (progn
+                          (dolist (arg args)
+                            (when (not (symbolp arg))
+                              (comp-err "Not symbol in defun args")))
+                          (unless *comp-err*
+                            (dolist (func *funcs*)
+                              (when (eq (car func) name)
+                                (comp-err (concat "Redefinition of '" ;; TODO: remove error (redefinition is valid)
+                                                  (symbol-name name)
+                                                  "' in defun"))))
+                            (unless *comp-err*
+                              (compile-func name args fbody)))))
+                    (comp-err "Not symbol in defun function name")))))))
 
 ;; Компилирует вызов функции.
 ;; label - метка тела функции.
 ;; fparams - параметры функции.
-(defun compile-func (label fparams)
+(defun compile-func-call (label fparams)
   (let ((func nil)
         (args nil)
         (args-len 0)
@@ -180,8 +223,7 @@
     (dolist (_ fparams)
       (setq fparams-len (++ fparams-len)))
     (dolist (f *funcs*)
-      (when (and (eq (car f) 'lambda)
-                 (eq (cadr f) label))
+      (when (eq (cadr f) label)
         (setq func f)))
     (when (null func)
       (error "Unreachable"))

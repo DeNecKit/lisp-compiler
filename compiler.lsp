@@ -64,13 +64,27 @@
                        (unless *comp-err*
                          (compile-func-call label-func args)))
                      (comp-err "Invalid lambda symbol"))
-                 (let ((label-func nil))
-                   (dolist (f *funcs*)
-                     (when (eq (car f) func)
-                       (setq label-func (cadr f))))
-                   (if (null label-func)
-                       (comp-err (concat "Unknown func: " (symbol-name func)))
-                       (compile-func-call label-func args))))))))))
+                 (let* ((args-len (list-length args))
+                        (prim-table (case args-len
+                                      (1 *prim1-table*)
+                                      (2 *prim2-table*)
+                                      (3 *prim3-table*)
+                                      (otherwise nil)))
+                        (prim-i nil))
+                   (when (not (null prim-table))
+                     (for i 0 (array-size prim-table)
+                          (when (eq (aref prim-table i) func)
+                            (setq prim-i i
+                                  i (array-size prim-table)))))
+                   (if (not (null prim-i))
+                       (compile-prim args prim-i)
+                       (let ((label-func nil))
+                         (dolist (f *funcs*)
+                           (when (eq (car f) func)
+                             (setq label-func (cadr f))))
+                         (if (null label-func)
+                             (comp-err (concat "Unknown func: " (symbol-name func)))
+                             (compile-func-call label-func args))))))))))))
 
 ;; Компилирует блок progn.
 ;; lst - список S-выражений внутри блока progn.
@@ -243,6 +257,25 @@
           (emit `(call ,label))
           (when (> args-len 0)
             (emit `(drop ,args-len)))))))
+
+;; Компилирует вызов примитива.
+;; args - аргументы примитива.
+;; prim-i - индекс в таблице примитивов.
+(defun compile-prim (args prim-i)
+  (let* ((args-len (list-length args))
+         (inst (case args-len
+                 (1 'prim1)
+                 (2 'prim2)
+                 (3 'prim3)
+                 (otherwise (error "Unreachable"))))
+         (locals-copy *locals*))
+    (foldr '(lambda (_ expr)
+           (inner-compile expr)
+           (emit '(push))
+           (setq *locals* (cons nil *locals*)))
+         nil args)
+    (emit `(,inst ,prim-i))
+    (setq *locals* locals-copy)))
 
 ;; Добавляет инструкцию к текущей накопленной программе *program*.
 (defun emit (val)

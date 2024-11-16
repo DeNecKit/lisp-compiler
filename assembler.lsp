@@ -4,7 +4,8 @@
     jmp jnt
     global-set global-get
     push pop drop local-get local-set
-    call ret))
+    call ret
+    prim1 prim2 prim3))
 ;; *inst-jmp-table* - список номеров инструкций перехода.
 (defvar *inst-jmp-table* '(1 2 10))
 
@@ -74,10 +75,3 @@
                (++ i))
              0 bytecode)
       bytecode-arr)))
-
-(defun contains (lst elem)
-  (if (null lst)
-      nil
-      (if (eq (car lst) elem)
-          t
-          (contains (cdr lst) elem))))

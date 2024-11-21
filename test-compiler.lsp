@@ -76,11 +76,11 @@
 	    (defun f (x) x)
 	    (f 5))
       5)
-;; (test '(progn
-;;         (defun f (x) x)
-;;         (defun f () 1)
-;;         (f))
-;;       1)
+(test '(progn
+        (defun f (x) x)
+        (defun f () 1)
+        (f))
+      1)
 
 (test '(+ 5 10) 15)
 (test '((lambda (a b) (+ a b)) 15 20) 35)

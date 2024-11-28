@@ -30,10 +30,7 @@
         (setq *comp-err-msg* (concat "[Compilation error] " *comp-err-msg*))
         ;; (print *comp-err-msg*)
         nil)
-      (progn
-        (when (null *program*)
-          (setq *program* `((lda ,nil))))
-        *program*)))
+      *program*))
 
 (defun inner-compile (expr)
   (unless *comp-err*
@@ -78,7 +75,7 @@
                                   i (array-size prim-table)))))
                    (if (not (null prim-i))
                        (compile-prim args prim-i)
-                       (let ((label-func (foldl '(lambda (res f)
+                       (let ((label-func (foldl #'(lambda (res f)
                                                   (if (and (null res)
                                                            (eq (car f) func))
                                                       (cadr f)
@@ -166,8 +163,8 @@
           (cons `(,func-name ,label-func ,args) *funcs*))
     (emit `(jmp ,label-after))
     (emit label-func)
-    (foldr '(lambda (_ arg)
-             (setq *locals* (cons arg *locals*)))
+    (foldr #'(lambda (_ arg)
+               (setq *locals* (cons arg *locals*)))
            nil args)
     (setq *locals* (cons nil *locals*))
     (dolist (expr func-body)
@@ -225,16 +222,16 @@
 ;; label - метка тела функции.
 ;; fparams - параметры функции.
 (defun compile-func-call (label fparams)
-  (let ((func (foldl '(lambda (res f)
-                       (if (and (null res)
-                                (eq (cadr f) label))
-                           f
-                           res))
+  (let ((func (foldl #'(lambda (res f)
+                         (if (and (null res)
+                                  (eq (cadr f) label))
+                             f
+                             res))
                      nil *funcs*))
         (args nil)
         (args-len 0)
-        (fparams-len (foldl '(lambda (len _)
-                              (++ len))
+        (fparams-len (foldl #'(lambda (len _)
+                                (++ len))
                             0 fparams)))
     (when (null func)
       (error "Unreachable"))
@@ -247,9 +244,9 @@
                    (inttostr args-len)
                    ", but got " (inttostr fparams-len) ")"))
         (progn
-          (foldr '(lambda (_ param)
-                   (inner-compile param)
-                   (emit '(push)))
+          (foldr #'(lambda (_ param)
+                     (inner-compile param)
+                     (emit (list 'push)))
                  nil fparams)
           (emit `(call ,label))
           (when (> args-len 0)
@@ -266,25 +263,25 @@
                  (3 'prim3)
                  (otherwise (error "Unreachable"))))
          (locals-copy *locals*))
-    (foldr '(lambda (_ expr)
-           (inner-compile expr)
-           (emit '(push))
-           (setq *locals* (cons nil *locals*)))
-         nil args)
-    (emit `(,inst ,prim-i))
+    (foldr #'(lambda (_ expr)
+               (inner-compile expr)
+               (emit (list 'push))
+               (setq *locals* (cons nil *locals*)))
+           nil args)
+    (emit (list inst prim-i))
     (setq *locals* locals-copy)))
 
 ;; Добавляет инструкцию к текущей накопленной программе *program*.
 (defun emit (val)
-  (setq *program* (append *program* `(,val))))
+  (setq *program* (append *program* (list val))))
 
 ;; Производит поиск переменной по символу сначала в локальном, а затем в глобальном окружении.
 ;; Возвращает список, состоящий из символа - GLOBAL или LOCAL,
 ;; и индекса в массиве глобального окружения или в стеке, либо nil.
 (defun find-var (var)
   (let ((local (find-local-var var)))
-    (if (not (null local)) `(local ,local)
-        `(global ,(find-global-var var)))))
+    (if (not (null local)) (list 'local local)
+        (list 'global (find-global-var var)))))
 
 ;; Производит поиск переменной в глобальном окружении по символу.
 ;; Возвращает индекс в массиве глобального окружения, если символ найден, иначе nil.

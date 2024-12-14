@@ -1,311 +1,215 @@
-;; *program* - хранит накопленный результат компиляции функцией compile.
-(defvar *program* nil)
-;; *globals* - список имён глобальных переменных.
-(defvar *globals* nil)
-;; *globals-count* - число глобальных переменных в списке *globals*.
-(defvar *globals-count* 0)
-;; *comp-err* - флаг, произошла ли ошибка при последней компиляции.
-(defvar *comp-err* nil)
-;; *comp-err-msg* - сообщение о последней ошибки компиляции.
-(defvar *comp-err-msg* nil)
-;; *funcs* - список функций, содержащий названия аргументов.
-(defvar *funcs* nil)
-;; *locals* - окружение локальных переменных.
-(defvar *locals* nil)
+;; *global-variables* - список имён глобальных переменных.
+(defvar *global-variables*)
+;; *global-variables-count* - число глобальных переменных в списке *global-variables*.
+(defvar *global-variables-count*)
+;; *global-functions* - глобальное окружение функций, содержащий названия функций, смещение кадра окружения, кол-во аргументов.
+(defvar *global-functions*)
+;; постоянный список примитивов с количеством их аргументов
+(defvar *primitives*
+  '((car . 1) (cdr . 1) (cons . 2) (rplaca . 2) (rplacd . 2)
+    (+ . 2) (- . 2) (* . 2) (/ . 2) (% . 2) (& . 2) (bitor . 2) (<< . 2) (>> . 2) (equal . 2) (> . 2) (< . 2) (sin . 1) (cos . 1)
+    (intern . 1) (symbol-name . 1) (string-size . 1) (inttostr . 1) (code-char . 1) (print . 1) (putchar . 1) (char . 2) (concat . 2) (subseq . 3)
+    (make-array . 1) (array-size . 1) (aref . 2) (seta . 3)
+    (symbolp . 1) (integerp . 1)))
 
+;; Устанавливает флаг ошибки компиляции и сохраняет сообщение об ошибке.
+(defun comp-err (msg)
+  (return-from 'compiler msg))
 
-;; Создаёт список инструкций для вычисления S-выражения expr на виртуальной машине с помощью функции vm-run.
-;; expr - S-выражение
-(defun compile (expr)
-  (setq *program* nil
-        *globals* nil
-        *globals-count* 0
-        *comp-err* nil
-        *comp-err-msg* nil
-        *funcs* nil
-        *locals* nil)
-  (inner-compile expr)
-  (if *comp-err*
-      (progn
-        (setq *comp-err-msg* (concat "[Compilation error] " *comp-err-msg*))
-        ;; (print *comp-err-msg*)
-        nil)
-      *program*))
+;; Расширить окружение новым кадром аргументов
+(defun extend-env (env args)
+  (cons args env))
 
-(defun inner-compile (expr)
-  (unless *comp-err*
-    (if (atom expr)
-        (if (and (symbolp expr)
-                 (not (eq expr t)))
-            (let* ((find-res (find-var expr))
-                   (scope (car find-res))
-                   (var (cadr find-res)))
-              (if (null var)
-                  (comp-err (concat "Unknown symbol: " (symbol-name expr)))
-                  (case scope
-                    ('global (emit `(global-get ,var)))
-                    ('local (emit `(local-get ,var)))
-                    (otherwise (error "Unreachable")))))
-            (emit `(lda ,expr)))
-        (let ((func (car expr))
-              (args (cdr expr)))
-          (case func
-            ('progn (compile-progn args))
-            ('if (compile-if args))
-            ('setq (compile-setq args))
-            ('defun (compile-defun args))
-            (otherwise
-             (if (not (atom func))
-                 (if (eq (car func) 'lambda)
-                     (let ((label-func (compile-lambda (cdr func))))
-                       (unless *comp-err*
-                         (compile-func-call label-func args)))
-                     (comp-err "Invalid lambda symbol"))
-                 (let* ((args-len (list-length args))
-                        (prim-table (case args-len
-                                      (1 *prim1-table*)
-                                      (2 *prim2-table*)
-                                      (3 *prim3-table*)
-                                      (otherwise nil)))
-                        (prim-i nil))
-                   (when (not (null prim-table))
-                     (for i 0 (array-size prim-table)
-                          (when (eq (aref prim-table i) func)
-                            (setq prim-i i
-                                  i (array-size prim-table)))))
-                   (if (not (null prim-i))
-                       (compile-prim args prim-i)
-                       (let ((label-func (foldl #'(lambda (res f)
-                                                  (if (and (null res)
-                                                           (eq (car f) func))
-                                                      (cadr f)
-                                                      res))
-                                                nil *funcs*)))
-                         (if (null label-func)
-                             (comp-err (concat "Unknown func: " (symbol-name func)))
-                             (compile-func-call label-func args))))))))))))
+;; Добавить глобальную функцию с именем, смещением окружения и числом аргументов
+(defun add-func (name env arity)
+  (setq *global-functions* (cons (list name env arity) *global-functions*)))
 
-;; Компилирует блок progn.
-;; lst - список S-выражений внутри блока progn.
-(defun compile-progn (lst)
-  (unless (null lst)
-    (inner-compile (car lst))
-    (compile-progn (cdr lst))))
+;; Поиск функции или примитива по имени, возвращет сохраненную функцию или примитив
+(defun search-func-list (list name)
+  (labels ((search (list)
+	     (if (null list) nil
+		 (if (eq (caar list) name) (car list)
+		     (search (cdr list))))))
+    (search list)))
 
-;; Компилирует if-выражение.
-;; if-body - тело if-выражения (условие, ветка по "Да" и по "Нет").
-(defun compile-if (if-body)
-  (if (null if-body)
-      (comp-err "if: no params")
-      (if (or
-           (atom if-body)
-           (null (cdr if-body))
-           (null (cddr if-body)))
-          (comp-err "if: not enough params")
-          (if (not (null (cdr (cddr if-body))))
-              (comp-err "if: too many params")
-              (let ((if-cond (car if-body))
-                    (if-true (cadr if-body))
-                    (if-false (caddr if-body))
-                    (label-false (gensym))
-                    (label-after (gensym)))
-                (inner-compile if-cond)
-                (emit `(jnt ,label-false))
-                (inner-compile if-true)
-                (emit `(jmp ,label-after))
-                (emit label-false)
-                (inner-compile if-false)
-                (emit label-after))))))
+;; Проверка на правильность lambda выражения, или ошибка
+(defun correct-lambda (f)
+  (and (not (atom f))
+       (>= (list-length f) 3)
+       (equal (car f) 'lambda)
+       (or (null (cadr f))
+           (not (atom (cadr f))))
+       (labels ((is-args-sym (args)
+                  (if (null args) t
+                      (if (symbolp (car args))
+                          (is-args-sym (cdr args))
+                          nil))))
+         (is-args-sym (cadr f)))))
+
+;; Комплирует лямбда-абстракцию.
+;; (список аргументов, тело функции, локальное окружение).
+(defun compile-lambda (name args body env)
+  (let ((arity (list-length args)))
+    (add-func name (list-length env) arity)
+    (list 'LABEL name
+	  (list 'FIX-CLOSURE arity
+		(list 'SEQ
+		      (inner-compile body (extend-env env args))
+		      (list 'RETURN))))))
+
+;; Определения типа функции: лямбда, примитив, глобальная функция
+(defun find-func (f)
+  (if (and (not (atom f)) (correct-lambda f))
+      (list 'lambda (list-length (cadr f)) (gensym)) ; lambda num-args name
+      (let ((r (search-func-list *global-functions* f)))
+	(if r (list 'func (caddr r) (cadr r))  ; func num-args env
+	    (let ((r (search-func-list *primitives* f)))
+	      (if r (list 'primitive (cdr r)) ; primitive num-atrgs
+		  (comp-err (concat "unknown function " (symbol-name f)))))))))
+		  
+;; Применение функции
+;; f - имя функции или lambda, args - аргументы, env - окружение
+(defun compile-application (f args env)
+  (let* ((fun (find-func f))
+	 (type (car fun))
+	 (count (cadr fun))
+	 (cur-env (list-length env)))
+    (if (!= count (list-length args))
+	(comp-err (concat "invalid args count"))
+	(let ((vals (map #'(lambda (a) (inner-compile a env)) args)))
+	  (case type
+	    ('lambda
+		(let ((name (caddr fun)))
+		  (list 'SEQ
+			(compile-lambda name (cadr f) `(progn ,@(cddr f)) env)
+			(list 'REG-CALL name cur-env vals))))
+	    ('func (list 'REG-CALL f (caddr fun) vals))
+	    ('primitive (list 'PRIM f vals)))))))
+
+;; Компилирует объявление функции с помощью DEFUN.
+;; expr - список, состоящий из названия, списка аргументов и тела функции.
+(defun compile-defun (expr env)
+  ;; проверка на правильность expr
+  (let ((name (car expr))
+	(args (cadr expr))
+	(body (cddr expr)))
+    (compile-lambda name args `(progn ,@body) env)))
+
+;; Добавить глобальную переменную
+;; Возвращает индекс добавленной переменной
+(defun add-global (sym)
+  (setq *global-variables* (append *global-variables* (list sym)))
+  (incf *global-variables-count*)
+  (- *global-variables-count* 1))
 
 ;; Компилирует setq-выражение.
 ;; setq-body - пара из символа и выражения, которое необходимо установить этому символу.
-(defun compile-setq (setq-body)
-  (if (null setq-body)
+(defun compile-setq (body env)
+  (if (null body)
       (comp-err "setq: no params")
-      (if (or
-           (atom setq-body)
-           (null (cdr setq-body)))
-          (comp-err "setq: no expression to set")
-          (let* ((setq-sym (car setq-body))
-                 (setq-expr (cadr setq-body))
-                 (find-res (find-var setq-sym))
-                 (setq-var-type (car find-res))
-                 (setq-i (cadr find-res)))
-            (if (symbolp setq-sym)
-                (if (eq setq-sym t)
-                    (comp-err (concat "setq: variable name is constant: " (symbol-name setq-sym)))
-                    (progn
-                      (inner-compile setq-expr)
-                      (when (null setq-i)
-                        (when (not (eq setq-var-type 'global))
-                          (error "Unreachable"))
-                        (setq *globals* (append *globals* `(,setq-sym)))
-                        (setq setq-i *globals-count*)
-                        (setq *globals-count* (++ *globals-count*)))
-                      (case setq-var-type
-                        ('global (emit `(global-set ,setq-i)))
-                        ('local (emit `(local-set ,setq-i)))
-                        (otherwise (error "Unreachable")))
-                      (when (not (null (cddr setq-body)))
-                        (compile-setq (cddr setq-body)))))
-                (comp-err "setq: variable name is not a symbol"))))))
+      (labels ((compile-all-setq (body)
+		 (if (= (list-length body) 2)
+		     (compile-single-setq body)
+		     (list 'SEQ (compile-single-setq body) (compile-all-setq (cddr body)))))
+	       (compile-single-setq (body)
+		 (if (< (list-length body) 2)
+		     (comp-err "setq: no expression to set")
+		     (let* ((var (car body))
+			    (val (inner-compile (cadr body) env))
+			    (res (find-var var env)))
+		       (if (not (symbolp var))
+			   (comp-err (concat "setq: invalid variable: " (symbol-name setq-sym)))
+			   (if (null res)
+			       (list 'GLOBAL-SET (add-global var) val)
+			       (case (car res)
+				 ('global (list 'GLOBAL-SET (cadr res) val))
+				 ('local (list 'LOCAL-SET (cadr res) val))
+				 ('deep (list 'DEEP-SET (cadr res) (caddr res) val))
+				 (otherwise (error "Unreachable")))))))))
+	    (compile-all-setq body))))
 
-;; Компилирует объявление функции (lambda или defun).
-;; func-name - название функции (nil в случае lambda).
-;; func-args - список названий переменных.
-;; func-body - тело функции.
-;; Возвращает метку на тело скомпилированной функции.
-(defun compile-func (func-name func-args func-body)
-  (let ((locals-copy *locals*)
-        (label-func (gensym))
-        (label-after (gensym)))
-    (setq *funcs*
-          (cons `(,func-name ,label-func ,args) *funcs*))
-    (emit `(jmp ,label-after))
-    (emit label-func)
-    (foldr #'(lambda (_ arg)
-               (setq *locals* (cons arg *locals*)))
-           nil args)
-    (setq *locals* (cons nil *locals*))
-    (dolist (expr func-body)
-      (inner-compile expr))
-    (setq *locals* locals-copy)
-    (emit '(ret))
-    (emit label-after)
-    label-func))
+;; Компилирует if-выражение.
+;; if-body - тело if-выражения (условие, ветка по "Да" и по "Нет").
+(defun compile-if (expr env)
+  (if (!= (list-length expr) 3)
+      (comp-err "if: invalid params")  
+      (let ((cond (inner-compile (car expr) env))
+	    (true (inner-compile (cadr expr) env))
+	    (false (inner-compile (caddr expr) env)))
+      (list 'ALTER cond true false))))
 
-;; Комплирует лямбда-выражение.
-;; lambda-body - тело лямбда-выражения (список аргументов и тело функции).
-;; Возвращает метку на тело скомпилированной лямбда-функции.
-(defun compile-lambda (lambda-body)
-  (if (null lambda-body)
-      (comp-err "No params in lambda")
-      (if (null (cdr lambda-body))
-          (comp-err "No body in lambda")
-          (let ((args (car lambda-body))
-                (lbody (cdr lambda-body)))
-            (if (and (not (null args))
-                     (atom args))
-                (comp-err "Invalid params in lambda")
-                (progn
-                  (dolist (arg args)
-                    (when (not (symbolp arg))
-                      (comp-err "Not symbol in lambda args")))
-                  (unless *comp-err*
-                    (compile-func nil args lbody))))))))
-
-;; Компилирует объявление функции с помощью DEFUN.
-;; defun-body - список, состоящий из названия, списка аргументов и тела функции.
-(defun compile-defun (defun-body)
-  (if (null defun-body)
-      (comp-err "No name in defun")
-      (if (null (cdr defun-body))
-          (comp-err "No args in defun")
-          (let ((name (car defun-body))
-                (args (cadr defun-body))
-                (fbody (cddr defun-body)))
-            (if (null fbody)
-                (comp-err "No body in defun")
-                (if (symbolp name)
-                    (if (and (not (null args))
-                             (atom args))
-                        (comp-err "Invalid params in defun")
-                        (progn
-                          (dolist (arg args)
-                            (when (not (symbolp arg))
-                              (comp-err "Not symbol in defun args")))
-                          (unless *comp-err*
-                            (compile-func name args fbody))))
-                    (comp-err "Not symbol in defun function name")))))))
-
-;; Компилирует вызов функции.
-;; label - метка тела функции.
-;; fparams - параметры функции.
-(defun compile-func-call (label fparams)
-  (let ((func (foldl #'(lambda (res f)
-                         (if (and (null res)
-                                  (eq (cadr f) label))
-                             f
-                             res))
-                     nil *funcs*))
-        (args nil)
-        (args-len 0)
-        (fparams-len (foldl #'(lambda (len _)
-                                (++ len))
-                            0 fparams)))
-    (when (null func)
-      (error "Unreachable"))
-    (setq args (caddr func))
-    (dolist (_ args)
-      (setq args-len (++ args-len)))
-    (if (not (eq fparams-len args-len))
-        (comp-err (concat
-                   "Invalid number of arguments (expected "
-                   (inttostr args-len)
-                   ", but got " (inttostr fparams-len) ")"))
-        (progn
-          (foldr #'(lambda (_ param)
-                     (inner-compile param)
-                     (emit (list 'push)))
-                 nil fparams)
-          (emit `(call ,label))
-          (when (> args-len 0)
-            (emit `(drop ,args-len)))))))
-
-;; Компилирует вызов примитива.
-;; args - аргументы примитива.
-;; prim-i - индекс в таблице примитивов.
-(defun compile-prim (args prim-i)
-  (let* ((args-len (list-length args))
-         (inst (case args-len
-                 (1 'prim1)
-                 (2 'prim2)
-                 (3 'prim3)
-                 (otherwise (error "Unreachable"))))
-         (locals-copy *locals*))
-    (foldr #'(lambda (_ expr)
-               (inner-compile expr)
-               (emit (list 'push))
-               (setq *locals* (cons nil *locals*)))
-           nil args)
-    (emit (list inst prim-i))
-    (setq *locals* locals-copy)))
-
-;; Добавляет инструкцию к текущей накопленной программе *program*.
-(defun emit (val)
-  (setq *program* (append *program* (list val))))
+;; Компилирует блок progn.
+;; lst - список S-выражений внутри блока progn.
+(defun compile-progn (lst env)
+  (if (null lst) (compile-constant '())
+    (if (null (cdr lst))
+	(inner-compile (car lst) env)
+      (list 'SEQ (inner-compile (car lst) env) (compile-progn (cdr lst) env)))))
 
 ;; Производит поиск переменной по символу сначала в локальном, а затем в глобальном окружении.
-;; Возвращает список, состоящий из символа - GLOBAL или LOCAL,
-;; и индекса в массиве глобального окружения или в стеке, либо nil.
-(defun find-var (var)
-  (let ((local (find-local-var var)))
-    (if (not (null local)) (list 'local local)
-        (list 'global (find-global-var var)))))
+;; Возвращает список, состоящий из символа - GLOBAL или LOCAL, DEEP,
+;; env - локальное окружение
+(defun find-var (var env)
+  (let ((local (find-local-var var env)))
+    (if (not (null local)) local
+        (find-global-var var))))
 
 ;; Производит поиск переменной в глобальном окружении по символу.
 ;; Возвращает индекс в массиве глобального окружения, если символ найден, иначе nil.
 (defun find-global-var (var)
-  (let ((globals *globals*)
-        (i 0))
-    (while (not (or (null globals)
-                    (eq (car globals) var)))
-      (setq globals (cdr globals))
-      (setq i (++ i)))
-    (if (null globals) nil i)))
+  (let ((i (list-search *global-variables* var)))
+    (if (null i) nil
+	(list 'global i))))
 
 ;; Производит поиск переменной в локальном окружении по символу.
 ;; Возвращает индекс переменной в стеке, если символ найден, иначе nil.
-(defun find-local-var (var)
-  (let ((locals *locals*)
-        (i 0))
-    (while (not (or (null locals)
-                    (eq (car locals) var)))
-      (setq locals (cdr locals))
-      (setq i (++ i)))
-    (if (null locals) nil i)))
+(defun find-local-var (var env)
+  (labels ((find-frame (frames i)
+	     (if (null frames) nil
+		 (let ((j (list-search (car frames) var)))
+		   (if (null j) (find-frame (cdr frames) (++ i))
+		       (if (= i 0) (list 'local j)
+			   (list 'deep i j)))))))
+	  (find-frame env 0)))
 
-;; Устанавливает флаг ошибки компиляции и сохраняет сообщение об ошибке.
-(defun comp-err (msg)
-  (setq *comp-err* t)
-  (setq *comp-err-msg* msg))
+;; Компиляция перемнной
+(defun compile-variable (v env)
+  (let ((res (find-var v env)))
+    (if (null res)
+	(comp-err (concat "Unknown symbol " (symbol-name v)))
+      (case (car res)
+	    ('local (list 'LOCAL-REF (cadr res)))
+	    ('global (list 'GLOBAL-REF (cadr res)))
+	    ('deep (list 'DEEP-REF (cadr res) (caddr res)))))))
+
+;; Компиляция константы
+(defun compile-constant (c)
+  (list 'CONST c))
+
+;; Функция компиляции в промежуточную форму
+;; expr - выражение, env - лексическое окружение
+(defun inner-compile (expr env)
+  (if (atom expr)
+      (if (symbolp expr)
+	  (compile-variable expr env)
+	  (compile-constant expr))
+      (let ((func (car expr))
+	    (args (cdr expr)))
+	(case func
+	  ('progn (compile-progn args env))
+	  ('if (compile-if args env))
+	  ('setq (compile-setq args env))
+	  ('defun (compile-defun args env))
+	  (otherwise (compile-application func args env))))))
+
+;; Анализ S-выражения и преобразование в эквивалентное выражение
+;; из более простых операций
+(defun compile (expr)
+  (setq *global-variables* '(t nil)
+        *global-variables-count* (list-length *global-variables*)
+        *comp-err* nil
+        *comp-err-msg* nil
+        *global-functions* nil
+        *environment* nil)
+  (block compiler
+    (inner-compile expr nil)))
